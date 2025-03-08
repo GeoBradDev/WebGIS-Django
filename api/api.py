@@ -10,6 +10,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail
 
 from .models import CustomUser as User
+from . import schemas
 from .schemas import RegisterSchema, LoginSchema, ForgotPasswordSchema, ResetPasswordSchema
 
 # Initialize API with CSRF protection
@@ -19,23 +20,20 @@ api = NinjaAPI(
     description="Endpoints for user authentication, registration, and password management."
 )
 
+
 def generate_response(success: bool, message: str, status: int = 200, **kwargs):
     """Utility function to format JSON responses."""
     return JsonResponse({"success": success, "message": message, **kwargs}, status=status)
+
 
 @api.get("/set-csrf-token", tags=["CSRF"])
 def get_csrf_token(request):
     """Retrieve and set CSRF token for frontend security."""
     csrf_token = get_token(request)
-    response = JsonResponse({"success": True, "message": "CSRF token set.", "csrftoken": csrf_token})
-    response.set_cookie(
-        key="csrftoken",
-        value=csrf_token,
-        httponly=False,  # Frontend can access it
-        secure=True,  # Ensures it works on HTTPS (Required for Render)
-        samesite="Lax"  # Allows requests from the frontend
-    )
+    response = generate_response(True, "CSRF token set successfully.", csrftoken=csrf_token)
+    response.set_cookie("csrftoken", csrf_token, httponly=False, secure=False, samesite="Lax")
     return response
+
 
 @api.post("/login", tags=["Authentication"], description="Authenticate and log in a user.")
 def login_user(request, payload: LoginSchema):
@@ -52,6 +50,7 @@ def login_user(request, payload: LoginSchema):
     request.session.save()
     return generate_response(True, "Login successful", user={"username": user.username, "email": user.email})
 
+
 @api.post("/logout", tags=["Authentication"], description="Log out the current user.")
 def logout_user(request):
     """Logs out the authenticated user and clears session cookies."""
@@ -62,19 +61,23 @@ def logout_user(request):
     response.delete_cookie("csrftoken")
     return response
 
+
 @api.get("/user", auth=django_auth, tags=["User"], description="Get details of the authenticated user.")
 def get_user(request):
     """Retrieve information about the logged-in user."""
     if not request.user.is_authenticated:
         return generate_response(False, "Not authenticated", status=401)
-    return generate_response(True, "User details retrieved", user={"username": request.user.username, "email": request.user.email})
+    return generate_response(True, "User details retrieved",
+                             user={"username": request.user.username, "email": request.user.email})
+
 
 @api.post("/register", tags=["Authentication"], description="Register a new user.")
 def register_user(request, payload: RegisterSchema):
     """Creates a new user account."""
     email = payload.email.lower()
     if User.objects.filter(email=email).exists():
-        return generate_response(False, "This email is already registered. Please log in or reset your password.", status=400)
+        return generate_response(False, "This email is already registered. Please log in or reset your password.",
+                                 status=400)
 
     user = User.objects.create_user(
         email=email,
@@ -91,7 +94,9 @@ def register_user(request, payload: RegisterSchema):
 
     return generate_response(True, "User registered successfully. A confirmation email has been sent.")
 
+
 @api.post("/forgot-password", tags=["Password Reset"], description="Send a password reset email.")
+@csrf_exempt
 def forgot_password(request, payload: ForgotPasswordSchema):
     """Sends an email with a password reset link if the email exists in the system."""
     try:
@@ -111,6 +116,7 @@ def forgot_password(request, payload: ForgotPasswordSchema):
         fail_silently=False,
     )
     return generate_response(True, "If the email is registered, a password reset email has been sent.")
+
 
 @api.post("/reset-password", tags=["Password Reset"], description="Reset a user's password using a token.")
 def reset_password(request, payload: ResetPasswordSchema):

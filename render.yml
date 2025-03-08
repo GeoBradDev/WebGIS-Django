@@ -1,0 +1,22 @@
+databases:
+  - name: WebGIS-Django
+    plan: free
+    databaseName: WebGIS
+    user: brad
+
+services:
+  - type: web
+    plan: free
+    name: WebGIS-Django
+    runtime: python
+    buildCommand: "./scripts/build.sh"
+    startCommand: "python -m gunicorn WebGIS.asgi:application -k uvicorn.workers.UvicornWorker"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: geoninja
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: WEB_CONCURRENCY
+        value: 4
