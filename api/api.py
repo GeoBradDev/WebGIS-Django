@@ -1,28 +1,49 @@
 from django.http import JsonResponse
+from django.views.decorators.csrf import ensure_csrf_cookie
 from ninja import NinjaAPI
+from django.contrib.sessions.models import Session
+from django.contrib.auth import get_user_model
+from .models import AdoptedArea
+from .schemas import AdoptAreaInput
+
+User = get_user_model()
 
 api = NinjaAPI(
-    csrf=True,
-    title="Django WebGIS API",
+    csrf=False,
+    title="Seaside Sustainability WebGIS API",
     description="Endpoints for user authentication, registration, and password management."
 )
 
 
-def generate_response(success: bool, message: str, status: int = 200, **kwargs):
-    """Utility function to format JSON responses."""
-    return JsonResponse({"success": success, "message": message, **kwargs}, status=status)
+# -------------------- Helper: Resolve user from session token --------------------
+def get_user_from_token(token):
+    try:
+        session = Session.objects.get(session_key=token)
+        user_id = session.get_decoded().get('_auth_user_id')
+        return User.objects.get(id=user_id)
+    except Exception:
+        return None
 
 
-# -------------------- USER PROFILE --------------------
-@api.get("/user", tags=["User"])
-def get_user(request):
-    """Retrieve the authenticated user's details."""
-    if not request.user.is_authenticated:
-        return generate_response(False, "Not authenticated", status=401)
+# -------------------- CSRF --------------------
+@api.get("/csrf/", tags=["Auth"])
+@ensure_csrf_cookie
+def get_csrf_token(request):
+    return JsonResponse({"success": True, "message": "CSRF cookie set"})
 
-    user_data = {
-        "email": request.user.email,
-        "first_name": request.user.first_name,
-        "last_name": request.user.last_name,
-    }
-    return generate_response(True, "Authenticated user data", user=user_data)
+
+# -------------------- ADOPT AREA --------------------
+@api.post("/adopt-area/", tags=["Adopt Area"])
+def adopt_area(request, data: AdoptAreaInput):
+    session_token = request.headers.get("X-Session-Token")
+    user = get_user_from_token(session_token)
+
+    if not user:
+        return JsonResponse({"success": False, "message": "Not authenticated"}, status=401)
+
+    try:
+        AdoptedArea.objects.create(user=user, **data.model_dump())
+        return JsonResponse({"success": True, "message": "Area adopted successfully!"}, status=201)
+    except Exception as e:
+        return JsonResponse({"success": False, "message": f"Failed to save area: {str(e)}"}, status=500)
+
