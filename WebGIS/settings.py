@@ -103,7 +103,7 @@ HEADLESS_ONLY = True
 HEADLESS_SERVE_SPECIFICATION = True
 
 ACCOUNT_LOGIN_METHODS = {'email'}
-ACCOUNT_SIGNUP_FIELDS = ['email', 'username', 'first_name', 'last_name', 'password1', 'password2']
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'username', 'first_name', 'last_name', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 
