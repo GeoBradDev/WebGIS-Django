@@ -59,16 +59,16 @@ run_command() {
 
 # ────────────────────────── CONFIGURATION ──────────────────────────
 # Database Configuration
-PG_VER=14
-DB_NAME="webgisdb"  # PostgreSQL converts to lowercase
-DB_USER="myuser"
-DB_PASS="mypassword"
+PG_VER=14 #TODO: Check for the postgres version
+DB_NAME="webgisdb" #TODO: Set database name
+DB_USER="myuser" #TODO: Set database user
+DB_PASS="mypassword" #TODO: Set database password
 
 # Django Configuration
 DJANGO_PROJ="WebGIS"
-DJANGO_SUPERUSER="admin"
-DJANGO_SUPERPASS="adminpass"
-DJANGO_SUPEREMAIL="admin@example.com"
+DJANGO_SUPERUSER="admin" #TODO: Set Django superuser username
+DJANGO_SUPERPASS="adminpass" #TODO: Set Django superuser password
+DJANGO_SUPEREMAIL="admin@example.com" #TODO: Set Django superuser email
 PYTHON_VENV=".venv"
 
 # Repository Configuration
