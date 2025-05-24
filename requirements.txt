@@ -1,6 +1,7 @@
 annotated-types==0.7.0
 asgiref==3.8.1
 Brotli==1.1.0
+celery==5.5.2
 certifi==2025.4.26
 charset-normalizer==3.4.2
 click==8.2.1
@@ -30,6 +31,7 @@ pydantic_core==2.33.2
 pytest==8.3.5
 python-dotenv==1.1.0
 PyYAML==6.0.2
+redis==6.1.0
 regex==2024.11.6
 requests==2.32.3
 ruamel.base==1.0.0
