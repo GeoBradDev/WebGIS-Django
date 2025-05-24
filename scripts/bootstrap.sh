@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
-# 🎯 Full-Stack Web Application Setup Script
+# 🎯 WebGIS Full-Stack Web Application Setup Script
 # Combines Django backend with PostgreSQL/PostGIS and React frontend setup
 
-echo "🚀 Starting Full-Stack Application Setup..."
+echo "🚀 Starting WebGIS Full-Stack Application Setup..."
 
 # ────────────────────────── ERROR HANDLING ──────────────────────────
 # Add error handling function
@@ -99,7 +99,7 @@ create_render_config() {
     echo "📝 Creating render.yaml for deployment..."
 
     cat > render.yaml <<'EOF'
-# render.yaml - Full-Stack Deployment Configuration
+# render.yaml - WebGIS Full-Stack Deployment Configuration
 services:
   # ────────────────────────── Frontend (React + Vite) ──────────────────────────
   - name: webgis-frontend
@@ -142,22 +142,59 @@ services:
         value: False
       - key: CORS_ALLOWED_ORIGINS
         value: https://webgis-frontend.onrender.com
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: webgis-redis
+
+  # ────────────────────────── Celery Worker (Async Tasks) ───────────────────────────
+  - name: webgis-celery
+    type: worker
+    env: python
+    region: ohio
+    repo: https://github.com/YOUR_USERNAME/YOUR_BACKEND_REPO
+    branch: deploy
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A $DJANGO_PROJ worker --loglevel=info
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: webgis-redis
+      - key: SECRET_KEY
+        sync: false  # optional — if you want to match backend
+      - key: DEBUG
+        value: False
 
   # ────────────────────────── Cron Job (Optional Maintenance) ───────────────────────────
   - name: webgis-maintenance
     type: cron
-    schedule: "0 4 * * *"  # every day at 4AM UTC
+    schedule: "0 4 * * *"
     env: python
     repo: https://github.com/YOUR_USERNAME/YOUR_BACKEND_REPO
     branch: deploy
     buildCommand: pip install -r requirements.txt
     startCommand: python manage.py cleanup_expired_data
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: webgis-redis
 
+# ────────────────────────── Database (PostGIS) ───────────────────────────
 databases:
   - name: webgis-database
     plan: basic-256mb
     region: ohio
     databaseName: webgisdb
+
+# ────────────────────────── Redis (Celery Broker) ───────────────────────────
+services:
+  - name: webgis-redis
+    type: redis
+    plan: hobby
+    region: ohio
 EOF
 
     echo "✅ render.yaml created. Update repository URLs and service names as needed."
