@@ -1,7 +1,10 @@
-from django.contrib.gis.geos import Polygon, Point, LineString, GEOSGeometry
+from django.contrib.gis.geos import Polygon, Point, GEOSGeometry
 from django.contrib.gis.db.models.functions import AsGeoJSON, Area, Distance, Centroid
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 from django.http import JsonResponse
-from ninja import NinjaAPI, Schema, UploadedFile
+from ninja import NinjaAPI, UploadedFile
+from osgeo import gdal, ogr, osr
 from api.models import DemoPoint, DemoPolygon, DemoLine
 from .schemas import PolygonIn, PolygonOut, PointIn, PointOut, LineIn, LineOut
 
@@ -291,7 +294,6 @@ def buffer_polygon(request, polygon_id: int, buffer_meters: float):
 @api.get("/gdal/raster-stats", tags=["GDAL"])
 def raster_stats(request, raster_path: str):
     """Return min, max, mean, and stddev for a raster."""
-    from osgeo import gdal
     try:
         ds = gdal.Open(raster_path)
         if not ds:
@@ -312,7 +314,6 @@ def raster_stats(request, raster_path: str):
 @api.get("/gdal/pixel-value", tags=["GDAL"])
 def pixel_value(request, raster_path: str, lng: float, lat: float):
     """Return the raster pixel value at a specific lon/lat location."""
-    from osgeo import gdal, osr
     try:
         ds = gdal.Open(raster_path)
         gt = ds.GetGeoTransform()
@@ -337,7 +338,6 @@ def pixel_value(request, raster_path: str, lng: float, lat: float):
 @api.get("/gdal/clip-raster", tags=["GDAL"])
 def clip_raster(request, raster_path: str, out_path: str, minx: float, miny: float, maxx: float, maxy: float):
     """Clip a raster to a bounding box and save it to disk."""
-    from osgeo import gdal
     try:
         gdal.Translate(out_path, raster_path, projWin=[minx, maxy, maxx, miny])
         return {"output_path": out_path}
@@ -348,7 +348,6 @@ def clip_raster(request, raster_path: str, out_path: str, minx: float, miny: flo
 @api.get("/gdal/vector-schema", tags=["GDAL"])
 def vector_schema(request, vector_path: str):
     """Return field names and types from a vector dataset."""
-    from osgeo import ogr
     try:
         ds = ogr.Open(vector_path)
         layer = ds.GetLayer()
@@ -357,16 +356,9 @@ def vector_schema(request, vector_path: str):
     except Exception as e:
         return {"error": str(e)}
 
-
-from django.core.files.storage import default_storage
-from django.core.files.base import ContentFile
-import os
-
-
 @api.post("/gdal/upload-reproject", tags=["GDAL"])
 def upload_and_reproject(request, file: UploadedFile):
     """Upload a vector file and reproject to EPSG:4326, return GeoJSON."""
-    from osgeo import ogr, osr
     try:
         input_path = default_storage.save(f"tmp/{file.name}", ContentFile(file.read()))
         input_ds = ogr.Open(default_storage.path(input_path))
@@ -393,7 +385,6 @@ def upload_and_reproject(request, file: UploadedFile):
 @api.get("/gdal/raster-metadata", tags=["GDAL"])
 def raster_metadata(request, raster_path: str):
     """Return metadata from a raster file."""
-    from osgeo import gdal
     try:
         dataset = gdal.Open(raster_path)
         if not dataset:
