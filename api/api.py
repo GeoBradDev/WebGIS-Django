@@ -308,7 +308,9 @@ def raster_stats(request, raster_path: str):
             "stddev": stats[3],
         }
     except Exception as e:
-        return {"error": str(e)}
+        import logging
+        logging.error("Error in raster_stats: %s", str(e), exc_info=True)
+        return {"error": "An unexpected error occurred while processing the raster data."}
 
 
 @api.get("/gdal/pixel-value", tags=["GDAL"])
