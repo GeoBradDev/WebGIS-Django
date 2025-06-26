@@ -316,6 +316,8 @@ def pixel_value(request, raster_path: str, lng: float, lat: float):
     """Return the raster pixel value at a specific lon/lat location."""
     try:
         ds = gdal.Open(raster_path)
+        if not ds:
+            return {"error": "Could not open raster"}
         gt = ds.GetGeoTransform()
         proj = ds.GetProjection()
 
