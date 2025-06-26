@@ -59,7 +59,7 @@ run_command() {
 
 # ────────────────────────── CONFIGURATION ──────────────────────────
 # Database Configuration
-PG_VER=14 #TODO: Check for the postgres version
+PG_VER=17 #TODO: Check for the postgres version
 DB_NAME="webgisdb" #TODO: Set database name
 DB_USER="myuser" #TODO: Set database user
 DB_PASS="mypassword" #TODO: Set database password
@@ -83,7 +83,7 @@ BACKEND_URL="http://localhost:8000"
 
 # ────────────────────────── REQUIRED SOFTWARE CHECK ──────────────────────────
 check_required_tools() {
-    local REQUIRED_TOOLS=("node" "npm" "git" "python3" "psql" "sudo")
+    local REQUIRED_TOOLS=("node" "npm" "git" "python3" "psql" "sudo" "gdal-config")
     echo "🔍 Checking for required tools..."
     for tool in "${REQUIRED_TOOLS[@]}"; do
         if ! command -v "$tool" >/dev/null 2>&1; then
@@ -203,8 +203,31 @@ EOF
 # ────────────────────────── SYSTEM DEPENDENCIES ──────────────────────────
 install_system_dependencies() {
     echo "🔧 Installing system dependencies..."
+
+    # Update package list
     run_command "Updating package list" sudo apt update
-    run_command "Installing system packages" sudo apt install -y "postgresql-$PG_VER" "postgresql-$PG_VER-postgis-3" python3-venv python3-pip python3-dev build-essential
+
+    # Install PostgreSQL, PostGIS, and build tools
+    run_command "Installing PostgreSQL + PostGIS + build tools" sudo apt install -y \
+        "postgresql-$PG_VER" \
+        "postgresql-$PG_VER-postgis-3" \
+        python3-venv \
+        python3-pip \
+        python3-dev \
+        build-essential \
+        libpq-dev
+
+    # Install geospatial libraries required by GDAL, GeoDjango, and friends
+    run_command "Installing GDAL and geospatial libraries" sudo apt install -y \
+        gdal-bin \
+        libgdal-dev \
+        libgeos-dev \
+        libproj-dev \
+        libspatialindex-dev \
+        binutils
+
+    # Optional: install CLI tools for raster/vector work (e.g., ogr2ogr, gdal_translate)
+    run_command "Verifying GDAL install" gdalinfo --version
 }
 
 # ────────────────────────── POSTGRESQL & POSTGIS SETUP ──────────────────────────
@@ -409,6 +432,7 @@ setup_backend() {
     local VENV_PYTHON="$PYTHON_VENV/bin/python"
     local VENV_PIP="$PYTHON_VENV/bin/pip"
 
+
     if [[ ! -f "$VENV_PYTHON" ]]; then
         run_command "Creating Python virtual environment" python3 -m venv "$PYTHON_VENV"
     else
@@ -421,11 +445,19 @@ setup_backend() {
         return 1
     fi
 
+    # Verify gdal-config is available
+    if ! command -v gdal-config >/dev/null 2>&1; then
+        echo "❌ gdal-config not found. GDAL must be installed system-wide before proceeding."
+        return 1
+    fi
+
     # Install Python dependencies
     echo "📦 Installing Python dependencies..."
     run_command "Upgrading pip" "$VENV_PIP" install --upgrade pip
     run_command "Installing python-dotenv" "$VENV_PIP" install python-dotenv
     run_command "Installing Python dependencies" "$VENV_PIP" install -r requirements.txt
+    GDAL_VERSION=$(gdal-config --version)
+     run_command "Installing GDAL Python binding" "$VENV_PIP" install "GDAL==$GDAL_VERSION"
 
     # Create backend environment file
     create_backend_env
