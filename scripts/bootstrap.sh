@@ -451,13 +451,21 @@ setup_backend() {
         return 1
     fi
 
+    # Cache and validate GDAL version
+    echo "🔍 Fetching GDAL version..."
+    GDAL_VERSION=$(gdal-config --version || echo "")
+    if [[ -z "$GDAL_VERSION" || ! "$GDAL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "❌ Failed to fetch or validate GDAL version. Ensure gdal-config is correctly installed and configured."
+        return 1
+    fi
+    echo "✅ GDAL version: $GDAL_VERSION"
+
     # Install Python dependencies
     echo "📦 Installing Python dependencies..."
     run_command "Upgrading pip" "$VENV_PIP" install --upgrade pip
     run_command "Installing python-dotenv" "$VENV_PIP" install python-dotenv
     run_command "Installing Python dependencies" "$VENV_PIP" install -r requirements.txt
-    GDAL_VERSION=$(gdal-config --version)
-     run_command "Installing GDAL Python binding" "$VENV_PIP" install "GDAL==$GDAL_VERSION"
+    run_command "Installing GDAL Python binding" "$VENV_PIP" install "GDAL==$GDAL_VERSION"
 
     # Create backend environment file
     create_backend_env
