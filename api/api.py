@@ -1,7 +1,10 @@
-from django.contrib.gis.geos import Polygon, Point, LineString, GEOSGeometry
+from django.contrib.gis.geos import Polygon, Point, GEOSGeometry
 from django.contrib.gis.db.models.functions import AsGeoJSON, Area, Distance, Centroid
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 from django.http import JsonResponse
-from ninja import NinjaAPI, Schema
+from ninja import NinjaAPI, UploadedFile
+from osgeo import gdal, ogr, osr
 from api.models import DemoPoint, DemoPolygon, DemoLine
 from .schemas import PolygonIn, PolygonOut, PointIn, PointOut, LineIn, LineOut
 
@@ -284,3 +287,119 @@ def buffer_polygon(request, polygon_id: int, buffer_meters: float):
 
     buffer = polygon.geom.buffer(buffer_meters)
     return {"buffer_geojson": buffer.geojson}
+
+
+# --- GDAL ---
+
+@api.get("/gdal/raster-stats", tags=["GDAL"])
+def raster_stats(request, raster_path: str):
+    """Return min, max, mean, and stddev for a raster."""
+    try:
+        ds = gdal.Open(raster_path)
+        if not ds:
+            return {"error": "Could not open raster"}
+
+        band = ds.GetRasterBand(1)
+        stats = band.GetStatistics(True, True)
+        return {
+            "min": stats[0],
+            "max": stats[1],
+            "mean": stats[2],
+            "stddev": stats[3],
+        }
+    except Exception as e:
+        import logging
+        logging.error("Error in raster_stats: %s", str(e), exc_info=True)
+        return {"error": "An unexpected error occurred while processing the raster data."}
+
+
+@api.get("/gdal/pixel-value", tags=["GDAL"])
+def pixel_value(request, raster_path: str, lng: float, lat: float):
+    """Return the raster pixel value at a specific lon/lat location."""
+    try:
+        ds = gdal.Open(raster_path)
+        if not ds:
+            return {"error": "Could not open raster"}
+        gt = ds.GetGeoTransform()
+        proj = ds.GetProjection()
+
+        srs = osr.SpatialReference(wkt=proj)
+        srs_latlon = osr.SpatialReference()
+        srs_latlon.ImportFromEPSG(4326)
+        transform = osr.CoordinateTransformation(srs_latlon, srs)
+
+        x_geo, y_geo, _ = transform.TransformPoint(lng, lat)
+        px = int((x_geo - gt[0]) / gt[1])
+        py = int((y_geo - gt[3]) / gt[5])
+
+        band = ds.GetRasterBand(1)
+        val = band.ReadAsArray(px, py, 1, 1)
+        return {"value": float(val[0][0])}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@api.get("/gdal/clip-raster", tags=["GDAL"])
+def clip_raster(request, raster_path: str, out_path: str, minx: float, miny: float, maxx: float, maxy: float):
+    """Clip a raster to a bounding box and save it to disk."""
+    try:
+        gdal.Translate(out_path, raster_path, projWin=[minx, maxy, maxx, miny])
+        return {"output_path": out_path}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@api.get("/gdal/vector-schema", tags=["GDAL"])
+def vector_schema(request, vector_path: str):
+    """Return field names and types from a vector dataset."""
+    try:
+        ds = ogr.Open(vector_path)
+        layer = ds.GetLayer()
+        fields = layer.schema
+        return {"fields": [{"name": f.name, "type": f.GetTypeName()} for f in fields]}
+    except Exception as e:
+        return {"error": str(e)}
+
+@api.post("/gdal/upload-reproject", tags=["GDAL"])
+def upload_and_reproject(request, file: UploadedFile):
+    """Upload a vector file and reproject to EPSG:4326, return GeoJSON."""
+    input_path = default_storage.save(f"tmp/{file.name}", ContentFile(file.read()))
+    try:
+        input_ds = ogr.Open(default_storage.path(input_path))
+        if not input_ds:
+            return {"error": "Could not open uploaded file"}
+
+        input_layer = input_ds.GetLayer()
+        source_srs = input_layer.GetSpatialRef()
+        target_srs = osr.SpatialReference()
+        target_srs.ImportFromEPSG(4326)
+        transform = osr.CoordinateTransformation(source_srs, target_srs)
+
+        features = []
+        for feat in input_layer:
+            geom = feat.GetGeometryRef()
+            geom.Transform(transform)
+            features.append(geom.ExportToJson())
+
+        return {"features": features}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@api.get("/gdal/raster-metadata", tags=["GDAL"])
+def raster_metadata(request, raster_path: str):
+    """Return metadata from a raster file."""
+    try:
+        dataset = gdal.Open(raster_path)
+        if not dataset:
+            return {"error": "Unable to open raster"}
+
+        return {
+            "driver": dataset.GetDriver().LongName,
+            "size": [dataset.RasterXSize, dataset.RasterYSize],
+            "bands": dataset.RasterCount,
+            "projection": dataset.GetProjection(),
+            "geotransform": dataset.GetGeoTransform()
+        }
+    except Exception as e:
+        return {"error": str(e)}
