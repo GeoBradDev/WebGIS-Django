@@ -363,8 +363,8 @@ def vector_schema(request, vector_path: str):
 @api.post("/gdal/upload-reproject", tags=["GDAL"])
 def upload_and_reproject(request, file: UploadedFile):
     """Upload a vector file and reproject to EPSG:4326, return GeoJSON."""
+    input_path = default_storage.save(f"tmp/{file.name}", ContentFile(file.read()))
     try:
-        input_path = default_storage.save(f"tmp/{file.name}", ContentFile(file.read()))
         input_ds = ogr.Open(default_storage.path(input_path))
         if not input_ds:
             return {"error": "Could not open uploaded file"}
