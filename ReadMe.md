@@ -25,7 +25,7 @@ Ensure you have the following software installed:
 Run the following command in your terminal:
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/GeoBradDev/WebGIS-Django/main/scripts/bootstrap.sh)
+bash <(curl -O https://raw.githubusercontent.com/GeoBradDev/WebGIS-Django/main/scripts/bootstrap.sh)
 ````
 
 This script performs the following:

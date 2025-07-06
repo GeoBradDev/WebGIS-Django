@@ -65,7 +65,6 @@ DB_USER="myuser" #TODO: Set database user
 DB_PASS="mypassword" #TODO: Set database password
 
 # Django Configuration
-DJANGO_PROJ="WebGIS"
 DJANGO_SUPERUSER="admin" #TODO: Set Django superuser username
 DJANGO_SUPERPASS="adminpass" #TODO: Set Django superuser password
 DJANGO_SUPEREMAIL="admin@example.com" #TODO: Set Django superuser email
@@ -134,7 +133,7 @@ services:
       python manage.py collectstatic --no-input
     startCommand: |
       python manage.py migrate --no-input &&
-      gunicorn $DJANGO_PROJ.asgi:application -k uvicorn.workers.UvicornWorker
+      gunicorn WebGIS.asgi:application -k uvicorn.workers.UvicornWorker
     envVars:
       - key: SECRET_KEY
         generateValue: true
@@ -156,7 +155,7 @@ services:
     branch: deploy
     autoDeploy: true
     buildCommand: pip install -r requirements.txt
-    startCommand: celery -A $DJANGO_PROJ worker --loglevel=info
+    startCommand: celery -A WebGIS worker --loglevel=info
     envVars:
       - key: REDIS_URL
         fromService:
@@ -402,7 +401,7 @@ setup_django_superuser() {
     local venv_python="$1"
 
     echo "👤 Creating Django superuser..."
-    if ! DJANGO_SETTINGS_MODULE="$DJANGO_PROJ.settings" "$venv_python" manage.py shell <<EOF
+    if ! DJANGO_SETTINGS_MODULE="WebGIS.settings" "$venv_python" manage.py shell <<EOF
 from django.contrib.auth import get_user_model
 User = get_user_model()
 if not User.objects.filter(username='$DJANGO_SUPERUSER').exists():
@@ -466,7 +465,7 @@ setup_backend() {
     run_command "Creating project directories" mkdir -p logs static media
 
     # Set Django settings module for all operations
-    export DJANGO_SETTINGS_MODULE="$DJANGO_PROJ.settings"
+    export DJANGO_SETTINGS_MODULE="WebGIS.settings"
 
     # Apply Django migrations
     echo "⚙️ Applying Django migrations..."
