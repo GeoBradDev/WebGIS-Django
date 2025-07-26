@@ -57,6 +57,26 @@ run_command() {
     fi
 }
 
+# ────────────────────────── OS DETECTION ──────────────────────────
+detect_os() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        OS="linux"
+        echo "🐧 Detected Linux operating system"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+        echo "🍎 Detected macOS operating system"
+    else
+        echo "❌ Unsupported operating system: $OSTYPE"
+        echo "This script supports Linux and macOS only"
+        echo ""
+        echo "💡 Windows users: Please use Windows Subsystem for Linux (WSL)"
+        echo "   1. Install WSL: https://docs.microsoft.com/en-us/windows/wsl/install"
+        echo "   2. Install Ubuntu or another Linux distribution"
+        echo "   3. Run this script from within your WSL environment"
+        exit 1
+    fi
+}
+
 # ────────────────────────── CONFIGURATION ──────────────────────────
 # Database Configuration
 PG_VER=17 #TODO: Check for the postgres version
@@ -82,7 +102,13 @@ BACKEND_URL="http://localhost:8000"
 
 # ────────────────────────── REQUIRED SOFTWARE CHECK ──────────────────────────
 check_required_tools() {
-    local REQUIRED_TOOLS=("node" "npm" "git" "python3" "psql" "sudo" "gdal-config")
+    local REQUIRED_TOOLS=("node" "npm" "git" "python3" "psql" "gdal-config")
+
+    # Add sudo to required tools only for Linux
+    if [[ "$OS" == "linux" ]]; then
+        REQUIRED_TOOLS+=("sudo")
+    fi
+
     echo "🔍 Checking for required tools..."
     for tool in "${REQUIRED_TOOLS[@]}"; do
         if ! command -v "$tool" >/dev/null 2>&1; then
@@ -203,6 +229,22 @@ EOF
 install_system_dependencies() {
     echo "🔧 Installing system dependencies..."
 
+    if [[ "$OS" == "linux" ]]; then
+        install_linux_dependencies
+    elif [[ "$OS" == "macos" ]]; then
+        install_macos_dependencies
+    else
+        echo "❌ Unsupported OS: $OS"
+        return 1
+    fi
+
+    # Verify GDAL installation regardless of OS
+    run_command "Verifying GDAL install" gdalinfo --version
+}
+
+install_linux_dependencies() {
+    echo "🐧 Installing Linux dependencies..."
+
     # Update package list
     run_command "Updating package list" sudo apt update
 
@@ -224,19 +266,65 @@ install_system_dependencies() {
         libproj-dev \
         libspatialindex-dev \
         binutils
+}
 
-    # Optional: install CLI tools for raster/vector work (e.g., ogr2ogr, gdal_translate)
-    run_command "Verifying GDAL install" gdalinfo --version
+install_macos_dependencies() {
+    echo "🍎 Installing macOS dependencies..."
+
+    # Check if Homebrew is installed
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "❌ Homebrew is not installed. Please install it first:"
+        echo "   /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        return 1
+    fi
+
+    # Update Homebrew
+    run_command "Updating Homebrew" brew update
+
+    # Install PostgreSQL and PostGIS
+    run_command "Installing PostgreSQL" brew install postgresql@"$PG_VER"
+    run_command "Installing PostGIS" brew install postgis
+
+    # Install Python build dependencies
+    run_command "Installing Python build tools" brew install python
+
+    # Install geospatial libraries
+    run_command "Installing GDAL and geospatial libraries" brew install \
+        gdal \
+        geos \
+        proj \
+        spatialindex
+
+    # Start PostgreSQL service
+    run_command "Starting PostgreSQL service" brew services start postgresql@"$PG_VER"
 }
 
 # ────────────────────────── POSTGRESQL & POSTGIS SETUP ──────────────────────────
 check_postgresql_service() {
     echo "🔍 Checking PostgreSQL service..."
-    if ! sudo systemctl is-active --quiet postgresql; then
-        echo "⚠️ PostgreSQL is not running. Starting it..."
-        run_command "Starting PostgreSQL" sudo systemctl start postgresql
+
+    if [[ "$OS" == "linux" ]]; then
+        if ! sudo systemctl is-active --quiet postgresql; then
+            echo "⚠️ PostgreSQL is not running. Starting it..."
+            run_command "Starting PostgreSQL" sudo systemctl start postgresql
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        # On macOS with Homebrew, PostgreSQL might already be started during installation
+        # Check if it's running and start if needed
+        if ! pgrep -f "postgres" >/dev/null 2>&1; then
+            echo "⚠️ PostgreSQL is not running. Starting it..."
+            run_command "Starting PostgreSQL" brew services start postgresql@"$PG_VER"
+        fi
     fi
     echo "✅ PostgreSQL is running"
+}
+
+get_postgres_user() {
+    if [[ "$OS" == "linux" ]]; then
+        echo "postgres"
+    elif [[ "$OS" == "macos" ]]; then
+        whoami  # On macOS, use current user
+    fi
 }
 
 setup_postgresql() {
@@ -244,10 +332,20 @@ setup_postgresql() {
 
     check_postgresql_service
 
+    local POSTGRES_USER
+    POSTGRES_USER=$(get_postgres_user)
+
     # Test PostgreSQL connection
-    if ! sudo -u postgres psql -c "SELECT version();" >/dev/null 2>&1; then
-        echo "❌ Cannot connect to PostgreSQL"
-        return 1
+    if [[ "$OS" == "linux" ]]; then
+        if ! sudo -u "$POSTGRES_USER" psql -c "SELECT version();" >/dev/null 2>&1; then
+            echo "❌ Cannot connect to PostgreSQL"
+            return 1
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        if ! psql -d postgres -c "SELECT version();" >/dev/null 2>&1; then
+            echo "❌ Cannot connect to PostgreSQL"
+            return 1
+        fi
     fi
 
     echo "🔄 Creating PostgreSQL user and database..."
@@ -256,7 +354,8 @@ setup_postgresql() {
     ORIGINAL_DIR=$(pwd)  # Set this before anything else
     cd /tmp || return 1
 
-    if ! sudo -u postgres psql <<EOF
+    if [[ "$OS" == "linux" ]]; then
+        if ! sudo -u "$POSTGRES_USER" psql <<EOF
 DO \$\$
 BEGIN
    IF NOT EXISTS (
@@ -274,17 +373,49 @@ DROP DATABASE IF EXISTS ${DB_NAME};
 CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
 EOF
-    then
-        echo "❌ Failed to create PostgreSQL user/database"
-        cd "$ORIGINAL_DIR"
-        return 1
-    fi
+        then
+            echo "❌ Failed to create PostgreSQL user/database"
+            cd "$ORIGINAL_DIR"
+            return 1
+        fi
 
-    # PostGIS extension
-    if ! sudo -u postgres psql -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;" ; then
-        echo "❌ Failed to add PostGIS extension"
-        cd "$ORIGINAL_DIR"
-        return 1
+        # PostGIS extension
+        if ! sudo -u "$POSTGRES_USER" psql -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;" ; then
+            echo "❌ Failed to add PostGIS extension"
+            cd "$ORIGINAL_DIR"
+            return 1
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        if ! psql -d postgres <<EOF
+DO \$\$
+BEGIN
+   IF NOT EXISTS (
+      SELECT FROM pg_catalog.pg_roles WHERE rolname = '${DB_USER}'
+   ) THEN
+      CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASS}';
+      RAISE NOTICE 'User ${DB_USER} created successfully';
+   ELSE
+      RAISE NOTICE 'User ${DB_USER} already exists';
+   END IF;
+END
+\$\$;
+
+DROP DATABASE IF EXISTS ${DB_NAME};
+CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
+GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
+EOF
+        then
+            echo "❌ Failed to create PostgreSQL user/database"
+            cd "$ORIGINAL_DIR"
+            return 1
+        fi
+
+        # PostGIS extension
+        if ! psql -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;" ; then
+            echo "❌ Failed to add PostGIS extension"
+            cd "$ORIGINAL_DIR"
+            return 1
+        fi
     fi
 
     cd "$ORIGINAL_DIR" || return 1
@@ -393,6 +524,8 @@ FRONTEND_URL=$FRONTEND_URL
 BACKEND_URL=$BACKEND_URL
 
 EOF
+
+
         echo "✅ Created .env file in backend directory."
     fi
 }
@@ -463,7 +596,25 @@ setup_backend() {
     echo "📦 Installing Python dependencies..."
     run_command "Upgrading pip" "$VENV_PIP" install --upgrade pip
     run_command "Installing python-dotenv" "$VENV_PIP" install python-dotenv
-    run_command "Installing Python dependencies" "$VENV_PIP" install -r requirements.txt
+
+    # Install modern PostgreSQL adapter first
+    echo "🐘 Installing modern PostgreSQL adapter..."
+    run_command "Installing psycopg3-binary" "$VENV_PIP" install psycopg[binary]
+
+    # Install other dependencies from requirements.txt, excluding GDAL to avoid conflicts
+    echo "📦 Installing requirements (excluding GDAL)..."
+    if ! grep -v -E "^(GDAL==|psycopg2)" requirements.txt | "$VENV_PIP" install -r /dev/stdin; then
+        echo "⚠️ Some packages failed to install, trying individual installation..."
+        # Fallback: install requirements.txt but skip problematic packages
+        while read -r line; do
+            if [[ ! "$line" =~ ^(GDAL) && ! "$line" =~ ^# && -n "$line" ]]; then
+                "$VENV_PIP" install "$line" || echo "⚠️ Failed to install $line, continuing..."
+            fi
+        done < requirements.txt
+    fi
+
+    # Install the correct GDAL version for this system
+    echo "🗺️ Installing GDAL Python binding for version $GDAL_VERSION..."
     run_command "Installing GDAL Python binding" "$VENV_PIP" install "GDAL==$GDAL_VERSION"
 
     # Create backend environment file
@@ -471,6 +622,34 @@ setup_backend() {
 
     # Create necessary directories
     run_command "Creating project directories" mkdir -p logs static media
+
+    # Add GDAL/GEOS library paths to settings.py for macOS BEFORE running migrations
+    if [[ "$OS" == "macos" ]]; then
+        echo "🔧 Adding GDAL/GEOS library paths to Django settings.py for macOS..."
+
+        # Check if the library paths are already in settings.py
+        if ! grep -q "GDAL_LIBRARY_PATH.*os.getenv" WebGIS/settings.py 2>/dev/null; then
+            # Add the import for platform if not already present
+            if ! grep -q "import platform" WebGIS/settings.py; then
+                sed -i.bak '/import os/a\
+import platform\
+' WebGIS/settings.py
+            fi
+
+            # Add the GDAL/GEOS configuration after the imports using a here document
+            cat >> WebGIS/settings.py << 'EOF'
+
+# GDAL/GEOS library paths for macOS
+if platform.system() == "Darwin":  # macOS
+    GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "/opt/homebrew/opt/gdal/lib/libgdal.dylib")
+    GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "/opt/homebrew/opt/geos/lib/libgeos_c.dylib")
+EOF
+
+            echo "✅ Added GDAL/GEOS library paths to Django settings.py"
+        else
+            echo "✅ GDAL/GEOS library paths already configured in settings.py"
+        fi
+    fi
 
     # Set Django settings module for all operations
     export DJANGO_SETTINGS_MODULE="WebGIS.settings"
@@ -544,6 +723,7 @@ main() {
     echo "Combines Django backend with PostgreSQL/PostGIS and React frontend setup"
     echo ""
 
+    detect_os
     check_required_tools
     create_render_config
     install_system_dependencies
