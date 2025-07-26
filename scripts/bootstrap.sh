@@ -603,7 +603,7 @@ setup_backend() {
 
     # Install other dependencies from requirements.txt, excluding GDAL to avoid conflicts
     echo "📦 Installing requirements (excluding GDAL)..."
-    if ! grep -v -E "^(GDAL==|psycopg2)" requirements.txt | "$VENV_PIP" install -r /dev/stdin; then
+    if ! grep -v -E "^GDAL==" requirements.txt | "$VENV_PIP" install -r /dev/stdin; then
         echo "⚠️ Some packages failed to install, trying individual installation..."
         # Fallback: install requirements.txt but skip problematic packages
         while read -r line; do
@@ -634,15 +634,18 @@ setup_backend() {
                 sed -i.bak '/import os/a\
 import platform\
 ' WebGIS/settings.py
+
+ # Remove the backup file created by sed
+                rm -f WebGIS/settings.py.bak
+
             fi
 
             # Add the GDAL/GEOS configuration after the imports using a here document
             cat >> WebGIS/settings.py << 'EOF'
 
 # GDAL/GEOS library paths for macOS
-if platform.system() == "Darwin":  # macOS
-    GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "/opt/homebrew/opt/gdal/lib/libgdal.dylib")
-    GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "/opt/homebrew/opt/geos/lib/libgeos_c.dylib")
+GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", f"{os.popen('brew --prefix').read().strip()}/opt/gdal/lib/libgdal.dylib")
+GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", f"{os.popen('brew --prefix').read().strip()}/opt/geos/lib/libgeos_c.dylib")
 EOF
 
             echo "✅ Added GDAL/GEOS library paths to Django settings.py"
