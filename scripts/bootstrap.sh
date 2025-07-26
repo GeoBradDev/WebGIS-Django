@@ -599,7 +599,6 @@ setup_backend() {
 
     # Install modern PostgreSQL adapter first
     echo "🐘 Installing modern PostgreSQL adapter..."
-    run_command "Installing psycopg3-binary" "$VENV_PIP" install psycopg[binary]
 
     # Install other dependencies from requirements.txt, excluding GDAL to avoid conflicts
     echo "📦 Installing requirements (excluding GDAL)..."
